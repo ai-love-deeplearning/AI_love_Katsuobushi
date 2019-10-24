@@ -4,9 +4,10 @@
 import numpy as np
 import scipy.sparse as sp
 
-from utils_env import *
+from utils import *
 
 NUMCLASSES = 41
+SYM = True
 
 def get_loader():
 	"""Dataloaderをビルドして返す"""
@@ -63,7 +64,12 @@ def get_loader():
 		support_unnormalized = sp.csr_matrix(adj_train_int == i + 1, dtype=np.float32)
 
 		support_unnormalized_transpose = support_unnormalized.T
+		support.append(support_unnormalized)
+		support_t.append(support_unnormalized_transpose)
 
+
+	support = globally_normalize_bipartite_adjacency(support, symmetric=SYM)
+	support_t = globally_normalize_bipartite_adjacency(support_t, symmetric=SYM)
 
 	return num_users, num_items, len(class_values), num_side_features, num_features, \
 		   u_features, v_features, u_features_side, v_features_side, \
