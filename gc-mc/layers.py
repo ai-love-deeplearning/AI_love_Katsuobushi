@@ -3,47 +3,86 @@ from keras import backend as K
 from keras import activations, initializers, constraints
 from keras import regularizers
 from keras.engine.topology import Layer
+import tensorflow as tf
 import numpy as np
 import scipy.sparse as sp
-​
+
 #kernel_initializer='glorot_uniform'は、活性化関数が原点対称のとき
 #reluで活性化する時には kernel_initializer='he_normal' を使うらしい
-​
+
+def dot(x, y, sparse=False):
+    """Wrapper for tf.matmul (sparse vs dense)."""
+    if sparse:
+        res = tf.sparse_tensor_dense_matmul(x, y)
+    else:
+        res = tf.matmul(x, y)
+    return res
+
+# keep_prob: (1 - dropout_rate)
+def dropout_sparse(x, keep_prob, num_nonzero_elems):
+    """
+    Dropout for sparse tensors. Currently fails for very large sparse tensors (>1M elements)
+    スパーステンソルのドロップアウト。 現在、非常に大きなスパーステンソル（> 1M要素）で失敗します
+    """
+    noise_shape = [num_nonzero_elems]
+    random_tensor = keep_prob
+    random_tensor += tf.random_uniform(noise_shape)
+    dropout_mask = tf.cast(tf.floor(random_tensor), dtype=tf.bool)
+    pre_out = tf.sparse_retain(x, dropout_mask)
+    pre_out = tf.cast(pre_out, tf.float32)
+
+    return pre_out * tf.div(1., keep_prob)
+
 class SGConv(Layer):
 
-    def __init__(self, output_dim, normalized, normalized_t, num_classes, sparse_inputs=False, activation=None,
+    def __init__(self, input_dim, output_dim, normalized, normalized_t,
+                num_classes, u_features_nonzero=None, v_features_nonzero=None,
+                sparse_inputs=False, dropout=0., activation=None,
                 kernel_initializer='he_normal', **kwargs):
 
         super(SGConv, self).__init__(**kwargs)
 
+        self.input_dim = input_dim
         self.output_dim = output_dim
+        self.dropout = dropout
         self.sparse_inputs = sparse_inputs
+        self.u_features_nonzero = u_features_nonzero
+        self.v_features_nonzero = v_features_nonzero
         self.activation = activations.get(activation)
         self.kernel_initializer = initializers.get(kernel_initializer)
 
-        self.normalized = np.dsplit(normalized, num_classes)
-        self.normalized_t = np.dsplit(normalized_t, num_classes)
-​
+        self.normalized = tf.sparse_split(axis=1, num_split=num_classes, sp_input=normalized)
+        self.normalized_t = tf.sparse_split(axis=1, num_split=num_classes, sp_input=normalized_t)
+
+        self.num_classes = num_classes
+
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
         self.kernel_u = self.add_weight(name='kernel',
-                                      shape=(input_shape[1], self.output_dim),
+                                      shape=(input_shape[0][1], self.output_dim),
                                       initializer=self.kernel_initializer,
                                       trainable=True)
 
         self.kernel_v = self.add_weight(name='kernel',
-                                      shape=(input_shape[1], self.output_dim),
+                                      shape=(input_shape[1][1], self.output_dim),
                                       initializer=self.kernel_initializer,
                                       trainable=True)
 
-        self.weights_u = np.dsplit(self.kernel_u, self.num_classes)
-        self.weights_v = np.dsplit(self.kernel_v, self.num_classes)
+        self.weights_u = tf.split(value=self.kernel_u, axis=1, num_or_size_splits=self.num_classes)
+        self.weights_v = tf.split(value=self.kernel_v, axis=1, num_or_size_splits=self.num_classes)
 
         super(SGConv, self).build(input_shape)  # Be sure to call this somewhere!
-​
+
     def call(self, inputs):
         x_u = inputs[0]
         x_v = inputs[1]
+
+        if self.sparse_inputs:
+            x_u = dropout_sparse(x_u, 1 - self.dropout, self.u_features_nonzero.value)
+            x_v = dropout_sparse(x_v, 1 - self.dropout, self.v_features_nonzero.value)
+        else:
+            x_u = tf.nn.dropout(x_u, 1 - self.dropout)
+            x_v = tf.nn.dropout(x_v, 1 - self.dropout)
 
         normalized_u = []
         normalized_v = []
@@ -55,26 +94,26 @@ class SGConv(Layer):
             normalized = self.normalized[i]
             normalized_t = self.normalized_t[i]
 
-            normalized_u.append(normalized.dot(tmp_v).toscr())
-            normalized_v.append(normalized_t.dot(tmp_u).toscr())
+            normalized_u.append(tf.sparse_tensor_dense_matmul(normalized, tmp_v))
+            normalized_v.append(tf.sparse_tensor_dense_matmul(normalized_t, tmp_u))
 
         # 分割と結合するのにh方向かd方向か要検討
-        z_u = np.dstack(normalized_u)
-        z_v = np.dstack(normalized_v)
+        z_u = tf.concat(axis=1, values=normalized_u)
+        z_v = tf.concat(axis=1, values=normalized_v)
 
         u_outputs = self.activation(z_u)
         v_outputs = self.activation(z_v)
 
         return u_outputs, v_outputs
-​
+
     def compute_output_shape(self, input_shape):
         return (input_shape[0], self.output_dim)
 
 class BilinearMixture(Layer):
 
     def __init__(self, num_classes, u_indices, v_indices, input_dim, num_users, num_items, user_item_bias=False,
-                , activation=None, kernel_initializer='he_normal', bias_initializer='zeros', num_weights=3, diagonal=True
-                , **kwargs):
+                activation=None, kernel_initializer='he_normal', bias_initializer='zeros', num_weights=3, diagonal=True,
+                **kwargs):
 
         super(BilinearMixture, self).__init__(**kwargs)
 

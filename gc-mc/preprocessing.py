@@ -5,6 +5,16 @@ import random
 import pandas as pd
 import numpy as np
 import scipy.sparse as sp
+import tensorflow as tf
+
+def convert_sparse_matrix_to_sparse_tensor(sparse_mx):
+    # if not sp.isspmatrix_coo(sparse_mx):
+    #     sparse_mx = sparse_mx.tocoo()
+    # coords = np.vstack((sparse_mx.row, sparse_mx.col)).transpose()
+    if not sp.isspmatrix_coo(sparse_mx):
+        sparse_mx = sparse_mx.tocoo()
+    indices = np.vstack((sparse_mx.row, sparse_mx.col)).transpose()
+    return tf.SparseTensor(indices, sparse_mx.data, sparse_mx.shape)
 
 # 特徴行列の正規化
 def normalize_features(feat):
@@ -36,6 +46,8 @@ def preprocess_user_item_features(u_features, v_features):
 
     u_features = sp.hstack([u_features, zero_csr_u], format='csr')
     v_features = sp.hstack([zero_csr_v, v_features], format='csr')
+
+
 
     return u_features, v_features
 
@@ -72,6 +84,18 @@ def globally_normalize_bipartite_adjacency(adjacencies, verbose=False, symmetric
         adj_norm = [degree_u_inv.dot(adj) for adj in adjacencies]
 
     return adj_norm
+
+def sparse_to_tuple(sparse_mx):
+    """ change of format for sparse matrix. This format is used
+    for the feed_dict where sparse matrices need to be linked to placeholders
+    representing sparse matrices. """
+
+    if not sp.isspmatrix_coo(sparse_mx):
+        sparse_mx = sparse_mx.tocoo()
+    coords = np.vstack((sparse_mx.row, sparse_mx.col)).transpose()
+    values = sparse_mx.data
+    shape = sparse_mx.shape
+    return coords, values, shape
 
 def map_data(data):
     uniq = list(set(data))
@@ -182,14 +206,28 @@ def create_trainvaltest_split():
     val_labels = labels[val_idx]
     test_labels = labels[test_idx]
 
-    # training隣接行列を作成する
+    # train隣接行列を作成する
     rating_mx_train = np.zeros(num_users * num_items, dtype=np.float32)
     rating_mx_train[train_idx] = labels[train_idx].astype(np.float32) + 1.
     rating_mx_train = sp.csr_matrix(rating_mx_train.reshape(num_users, num_items))
 
+    # val隣接行列を作成する
+    rating_mx_val = np.zeros(num_users * num_items, dtype=np.float32)
+    rating_mx_val[val_idx] = labels[val_idx].astype(np.float32) + 1.
+    rating_mx_val = sp.csr_matrix(rating_mx_val.reshape(num_users, num_items))
+
+    # test隣接行列を作成する
+    rating_mx_test = np.zeros(num_users * num_items, dtype=np.float32)
+    rating_mx_test[test_idx] = labels[test_idx].astype(np.float32) + 1.
+    rating_mx_test = sp.csr_matrix(rating_mx_test.reshape(num_users, num_items))
+
     class_values = np.sort(np.unique(ratings))
 
-    return u_features, v_features, rating_mx_train, train_labels, u_train_idx, v_train_idx, val_labels, u_val_idx, v_val_idx, test_labels, u_test_idx, v_test_idx, class_values
+    return u_features, v_features, rating_mx_train, rating_mx_val, rating_mx_test,\
+    train_labels, u_train_idx, v_train_idx, val_labels, u_val_idx, v_val_idx,\
+    test_labels, u_test_idx, v_test_idx, class_values
 
-if __name__ == '__main__':
-    u_features, v_features, rating_mx_train, train_labels, u_train_idx, v_train_idx, val_labels, u_val_idx, v_val_idx, test_labels, u_test_idx, v_test_idx, class_values = create_trainvaltest_split()
+# if __name__ == '__main__':
+#     u_features, v_features, rating_mx_train, train_labels, u_train_idx,
+#     v_train_idx, val_labels, u_val_idx, v_val_idx, test_labels, u_test_idx,
+#     v_test_idx, class_values = create_trainvaltest_split()
