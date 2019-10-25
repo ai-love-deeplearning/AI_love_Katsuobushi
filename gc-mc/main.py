@@ -18,6 +18,13 @@ normalized_train, normalized_t_train, train_labels, train_u_indices, train_v_ind
 normalized_val, normalized_t_val, val_labels, val_u_indices, val_v_indices, adj_val,\
 normalized_test, normalized_t_test, test_labels, test_u_indices, test_v_indices, adj_test = get_loader()
 
+u_features_side = K.variable(u_features_side)
+v_features_side = K.variable(v_features_side)
+
+# print('///')
+# print(train_labels.shape)
+# print('///')
+
 # Creating the architecture of the Neural Network
 model = GAE(u_features=u_features,
             v_features=v_features,

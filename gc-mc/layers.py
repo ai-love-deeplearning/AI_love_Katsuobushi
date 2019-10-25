@@ -3,6 +3,7 @@ from keras import backend as K
 from keras import activations, initializers, constraints
 from keras import regularizers
 from keras.engine.topology import Layer
+from initializations import *
 import tensorflow as tf
 import numpy as np
 import scipy.sparse as sp
@@ -35,10 +36,9 @@ def dropout_sparse(x, keep_prob, num_nonzero_elems):
 
 class SGConv(Layer):
 
-    def __init__(self, input_dim, output_dim, normalized, normalized_t,
-                num_classes, u_features_nonzero=None, v_features_nonzero=None,
-                sparse_inputs=False, dropout=0., activation=None,
-                kernel_initializer='he_normal', **kwargs):
+    def __init__(self, input_dim, output_dim, normalized, num_classes,
+                features_nonzero=None, sparse_inputs=False, dropout=0.,
+                activation=None, kernel_initializer='he_normal', **kwargs):
 
         super(SGConv, self).__init__(**kwargs)
 
@@ -46,65 +46,69 @@ class SGConv(Layer):
         self.output_dim = output_dim
         self.dropout = dropout
         self.sparse_inputs = sparse_inputs
-        self.u_features_nonzero = u_features_nonzero
-        self.v_features_nonzero = v_features_nonzero
+        self.features_nonzero = features_nonzero
+        # self.u_features_nonzero = u_features_nonzero
+        # self.v_features_nonzero = v_features_nonzero
         self.activation = activations.get(activation)
         self.kernel_initializer = initializers.get(kernel_initializer)
+        self._weights = None
 
         self.normalized = tf.sparse_split(axis=1, num_split=num_classes, sp_input=normalized)
-        self.normalized_t = tf.sparse_split(axis=1, num_split=num_classes, sp_input=normalized_t)
+        # self.normalized_t = tf.sparse_split(axis=1, num_split=num_classes, sp_input=normalized_t)
 
         self.num_classes = num_classes
 
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
-        self.kernel_u = self.add_weight(name='kernel',
-                                      shape=(input_shape[0][1], self.output_dim),
+        self.kernel = self.add_weight(name='kernel',
+                                      shape=(input_shape[1], self.output_dim),
                                       initializer=self.kernel_initializer,
                                       trainable=True)
-
-        self.kernel_v = self.add_weight(name='kernel',
-                                      shape=(input_shape[1][1], self.output_dim),
-                                      initializer=self.kernel_initializer,
-                                      trainable=True)
-
-        self.weights_u = tf.split(value=self.kernel_u, axis=1, num_or_size_splits=self.num_classes)
-        self.weights_v = tf.split(value=self.kernel_v, axis=1, num_or_size_splits=self.num_classes)
+        self._weights = tf.split(value=self.kernel, axis=1, num_or_size_splits=self.num_classes)
 
         super(SGConv, self).build(input_shape)  # Be sure to call this somewhere!
 
-    def call(self, inputs):
-        x_u = inputs[0]
-        x_v = inputs[1]
+    def call(self, input):
+        x = input
+        # x_u = inputs[0]
+        # x_v = inputs[1]
 
         if self.sparse_inputs:
-            x_u = dropout_sparse(x_u, 1 - self.dropout, self.u_features_nonzero.value)
-            x_v = dropout_sparse(x_v, 1 - self.dropout, self.v_features_nonzero.value)
+            x = dropout_sparse(x, 1 - self.dropout, self.features_nonzero.value)
+            # x_u = dropout_sparse(x_u, 1 - self.dropout, self.u_features_nonzero.value)
+            # x_v = dropout_sparse(x_v, 1 - self.dropout, self.v_features_nonzero.value)
         else:
-            x_u = tf.nn.dropout(x_u, 1 - self.dropout)
-            x_v = tf.nn.dropout(x_v, 1 - self.dropout)
+            x = tf.nn.dropout(x, 1 - self.dropout)
+            # x_u = tf.nn.dropout(x_u, 1 - self.dropout)
+            # x_v = tf.nn.dropout(x_v, 1 - self.dropout)
 
-        normalized_u = []
-        normalized_v = []
+        normalizeds = []
+        # normalized_u = []
+        # normalized_v = []
 
         for i in range(len(self.normalized)):
-            tmp_u = dot(x_u, self.weights_u[i], sparse=self.sparse_inputs)
-            tmp_v = dot(x_v, self.weights_v[i], sparse=self.sparse_inputs)
+            tmp = dot(x, self._weights[i], sparse=self.sparse_inputs)
+            # tmp_u = dot(x_u, self.weights_u[i], sparse=self.sparse_inputs)
+            # tmp_v = dot(x_v, self.weights_v[i], sparse=self.sparse_inputs)
 
             normalized = self.normalized[i]
-            normalized_t = self.normalized_t[i]
+            # normalized_t = self.normalized_t[i]
 
-            normalized_u.append(tf.sparse_tensor_dense_matmul(normalized, tmp_v))
-            normalized_v.append(tf.sparse_tensor_dense_matmul(normalized_t, tmp_u))
+            normalizeds.append(tf.sparse_tensor_dense_matmul(normalized, tmp))
+            # normalized_u.append(tf.sparse_tensor_dense_matmul(normalized, tmp_v))
+            # normalized_v.append(tf.sparse_tensor_dense_matmul(normalized_t, tmp_u))
 
         # 分割と結合するのにh方向かd方向か要検討
-        z_u = tf.concat(axis=1, values=normalized_u)
-        z_v = tf.concat(axis=1, values=normalized_v)
+        z = tf.concat(axis=1, values=normalizeds)
+        # z_u = tf.concat(axis=1, values=normalized_u)
+        # z_v = tf.concat(axis=1, values=normalized_v)
 
-        u_outputs = self.activation(z_u)
-        v_outputs = self.activation(z_v)
+        outputs = self.activation(z)
+        # u_outputs = self.activation(z_u)
+        # v_outputs = self.activation(z_v)
 
-        return u_outputs, v_outputs
+        return outputs
+        # return u_outputs, v_outputs
 
     def compute_output_shape(self, input_shape):
         return (input_shape[0], self.output_dim)
@@ -117,11 +121,13 @@ class BilinearMixture(Layer):
 
         super(BilinearMixture, self).__init__(**kwargs)
 
+        self.input_dim = input_dim
         self.num_classes = num_classes
         self.num_users = num_users
         self.num_items = num_items
         self.num_weights = num_weights
         self.user_item_bias = user_item_bias
+        self.diagonal = diagonal
 
         if diagonal:
             self._multiply_inputs_weights = np.multiply
@@ -137,21 +143,21 @@ class BilinearMixture(Layer):
 
     def build(self, input_shape):
         for i in range(self.num_weights):
-            if diagonal:
-                self.kernel['weights_%d' % i] = self.add_weight(name='weights_%d' % i,
-                                                                shape=(1, self.input_dim),
-                                                                initializer=self.kernel_initializer,
-                                                                trainable=True)
+            if self.diagonal:
+                self.kernel = self.add_weight(name='weights_%d' % i,
+                                            shape=(1, self.input_dim),
+                                            initializer=self.kernel_initializer,
+                                            trainable=True)
             else:
-                shape, name = orthogonal([input_dim, input_dim], name='weights_%d' % i)
-                self.kernel['weights_%d' % i] = self.add_weight(name=name,
-                                                                shape=shape,
-                                                                initializer=self.kernel_initializer,
-                                                                trainable=True)
-        self.kernel['weights_scalars'] = self.add_weight(name='weights_u_scalars',
-                                                        shape=(num_weights, num_classes),
-                                                        initializer=self.kernel_initializer,
-                                                        trainable=True)
+                # w_shape, w_name = orthogonal([self.input_dim, self.input_dim], name='weights_%d' % i)
+                self.kernel = self.add_weight(name='weights_%d' % i,
+                                            shape=[self.input_dim, self.input_dim],
+                                            initializer=self.kernel_initializer,
+                                            trainable=True)
+        self.kernel = self.add_weight(name='weights_u_scalars',
+                                    shape=(self.num_weights, self.num_classes),
+                                    initializer=self.kernel_initializer,
+                                    trainable=True)
 
         self.u_bias = self.add_weight(name='bias',
                                     shape=(self.num_users, self.num_classes),
@@ -191,3 +197,6 @@ class BilinearMixture(Layer):
         outputs = self.activation(outputs)
 
         return outputs
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], self.output_dim)

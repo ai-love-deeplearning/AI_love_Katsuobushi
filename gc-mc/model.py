@@ -16,28 +16,43 @@ class GAE(keras.Model):
         self.outputs = None
         self.u_features_side = u_features_side
         self.v_features_side = v_features_side
-        
+
         self.activations = []
         self.accuracy = 0
         self.optimizer = None
         self.opt_op = None
 
-        self.sgc = SGConv(input_dim=input_dim,
+        self.sgc_u = SGConv(input_dim=input_dim,
                         output_dim=hidden[0],
-                        u_features_nonzero=u_features_nonzero,
-                        v_features_nonzero=v_features_nonzero,
+                        features_nonzero=v_features_nonzero,
                         normalized=normalized,
-                        normalized_t=normalized_t,
                         num_classes=num_classes,
                         sparse_inputs=True,
                         dropout=dropout,
                         activation='relu',
                         kernel_initializer='he_normal')
-        self.dense1 = keras.layers.Dense(input_dim=num_side_features,
+        self.sgc_v = SGConv(input_dim=input_dim,
+                        output_dim=hidden[0],
+                        features_nonzero=u_features_nonzero,
+                        normalized=normalized_t,
+                        num_classes=num_classes,
+                        sparse_inputs=True,
+                        dropout=dropout,
+                        activation='relu',
+                        kernel_initializer='he_normal')
+        self.dense1_u = keras.layers.Dense(input_dim=num_side_features,
                                         units=feat_hidden_dim,
                                         activation='relu',
                                         use_bias=True)
-        self.dense2 = keras.layers.Dense(input_dim=feat_hidden_dim+hidden[0],
+        self.dense1_v = keras.layers.Dense(input_dim=num_side_features,
+                                        units=feat_hidden_dim,
+                                        activation='relu',
+                                        use_bias=True)
+        self.dense2_u = keras.layers.Dense(input_dim=feat_hidden_dim+hidden[0],
+                                        units=hidden[1],
+                                        activation='relu',
+                                        use_bias=True)
+        self.dense2_v = keras.layers.Dense(input_dim=feat_hidden_dim+hidden[0],
                                         units=hidden[1],
                                         activation='relu',
                                         use_bias=True)
@@ -57,33 +72,46 @@ class GAE(keras.Model):
     def call(self, inputs):
 
         # gcn layer
-        layer = self.sgc
-        gcn_hidden = layer(inputs)
+        layer = self.sgc_u
+        gcn_hidden_u = layer(inputs[1])
+        layer = self.sgc_v
+        gcn_hidden_v = layer(inputs[0])
 
         # dense layer for features
-        layer = self.dense1
-        feat_hidden = layer([self.u_features_side, self.v_features_side])
+        layer = self.dense1_u
+        feat_hidden_u = layer(self.u_features_side)
+        layer = self.dense1_v
+        feat_hidden_v = layer(self.v_features_side)
 
         # concat dense layer
-        layer = self.dense2
+        input_u = tf.concat(values=[gcn_hidden_u, feat_hidden_u], axis=1)
+        input_v = tf.concat(values=[gcn_hidden_v, feat_hidden_v], axis=1)
 
-        gcn_u = gcn_hidden[0]
-        gcn_v = gcn_hidden[1]
-        feat_u = feat_hidden[0]
-        feat_v = feat_hidden[1]
+        layer = self.dense2_u
+        concat_hidden_u = layer(input_u)
+        layer = self.dense2_v
+        concat_hidden_v = layer(input_v)
+        print('@@@@@@gcn_hidden_u')
+        print(gcn_hidden_u)
+        print('@@@@@@gcn_hidden_v')
+        print(gcn_hidden_v)
+        print('@@@@@@feat_hidden_u')
+        print(feat_hidden_u)
+        print('@@@@@@feat_hidden_v')
+        print(feat_hidden_v)
+        print('@@@@@@concat_hidden_u')
+        print(concat_hidden_u)
+        print('@@@@@@concat_hidden_v')
+        print(concat_hidden_v)
+        print('@@@@@@')
 
-        input_u = tf.concat(values=[gcn_u, feat_u], axis=1)
-        input_v = tf.concat(values=[gcn_v, feat_v], axis=1)
+        # self.activations.append(concat_hidden)
 
-        concat_hidden = layer([input_u, input_v])
+        # for layer in self.bilin_dec:
+        #     hidden = layer(self.activations[-1])
+        #     self.activations.append(hidden)
+        # self.outputs = self.activations[-1]
+        layer = self.bilin_dec
+        self.outputs = layer([concat_hidden_u, concat_hidden_v])
 
-        self.activations.append(concat_hidden)
-
-        for layer in self.bilin_dec:
-            hidden = layer(self.activations[-1])
-            self.activations.append(hidden)
-        self.outputs = self.activations[-1]
-
-        self._accuracy()
-
-        return self.outputs, self.accuracy
+        return self.outputs
