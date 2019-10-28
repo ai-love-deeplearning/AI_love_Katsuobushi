@@ -103,7 +103,6 @@ class GAE(keras.Model):
         print(concat_hidden_u)
         print('@@@@@@concat_hidden_v')
         print(concat_hidden_v)
-        print('@@@@@@')
 
         # self.activations.append(concat_hidden)
 
@@ -113,5 +112,7 @@ class GAE(keras.Model):
         # self.outputs = self.activations[-1]
         layer = self.bilin_dec
         self.outputs = layer([concat_hidden_u, concat_hidden_v])
+        print('@@@@@@outputs')
+        print(self.outputs)
 
         return self.outputs

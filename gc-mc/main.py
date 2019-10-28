@@ -3,12 +3,16 @@ from model import *
 from keras import backend as K
 
 FEATHIDDEN = 64
-HIDDEN = [41, 75]
+HIDDEN = [41, 41]
 BASES = 2
 DROPOUT = 0.7
 
 def softmax_cross_entropy(y_true, y_pred):
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=outputs, labels=labels)
+    print('@@@@@')
+    print(y_true)
+    print(y_pred)
+    print('@@@@@')
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=y_pred, labels=y_true)
     return K.mean(loss)
 
 # Load the datas
@@ -20,10 +24,10 @@ normalized_test, normalized_t_test, test_labels, test_u_indices, test_v_indices,
 
 u_features_side = K.variable(u_features_side)
 v_features_side = K.variable(v_features_side)
-
-# print('///')
-# print(train_labels.shape)
-# print('///')
+adj_train = K.variable(adj_train)
+print('@@@@@@@@@@@@@@@@@@')
+print([u_features, v_features])
+print('@@@@@@@@@@@@@@@@@@')
 
 # Creating the architecture of the Neural Network
 model = GAE(u_features=u_features,
@@ -46,8 +50,9 @@ model = GAE(u_features=u_features,
             v_indices=train_v_indices,
             dropout=DROPOUT)
 
-model.compile(loss=softmax_cross_entropy, optimizer='adam')
+model.compile(loss=softmax_cross_entropy,
+            optimizer='adam',
+            metrics=['accuracy'])
 
-hist = model.fit([u_features, v_features], train_labels,
-                epochs=50,
-                batch_size=256)
+hist = model.fit([u_features, v_features],
+                adj_train)
