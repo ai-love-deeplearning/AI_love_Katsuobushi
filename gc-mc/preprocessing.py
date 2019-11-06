@@ -46,9 +46,6 @@ def preprocess_user_item_features(u_features, v_features):
 
     u_features = sp.hstack([u_features, zero_csr_u], format='csr')
     v_features = sp.hstack([zero_csr_v, v_features], format='csr')
-
-
-
     return u_features, v_features
 
 def globally_normalize_bipartite_adjacency(adjacencies, verbose=False, symmetric=True):
@@ -211,21 +208,12 @@ def create_trainvaltest_split():
     rating_mx_train[train_idx] = labels[train_idx].astype(np.float32) + 1.
     rating_mx_train = sp.csr_matrix(rating_mx_train.reshape(num_users, num_items))
 
-    # val隣接行列を作成する
-    rating_mx_val = np.zeros(num_users * num_items, dtype=np.float32)
-    rating_mx_val[val_idx] = labels[val_idx].astype(np.float32) + 1.
-    rating_mx_val = sp.csr_matrix(rating_mx_val.reshape(num_users, num_items))
-
-    # test隣接行列を作成する
-    rating_mx_test = np.zeros(num_users * num_items, dtype=np.float32)
-    rating_mx_test[test_idx] = labels[test_idx].astype(np.float32) + 1.
-    rating_mx_test = sp.csr_matrix(rating_mx_test.reshape(num_users, num_items))
-
     class_values = np.sort(np.unique(ratings))
 
-    return u_features, v_features, rating_mx_train, rating_mx_val, rating_mx_test,\
-    train_labels, u_train_idx, v_train_idx, val_labels, u_val_idx, v_val_idx,\
-    test_labels, u_test_idx, v_test_idx, class_values
+    return u_features, v_features, class_values,\
+    rating_mx_train, train_labels, u_train_idx, v_train_idx,\
+    val_labels,   u_val_idx,   v_val_idx,\
+    test_labels,  u_test_idx,  v_test_idx
 
 # if __name__ == '__main__':
 #     u_features, v_features, rating_mx_train, train_labels, u_train_idx,

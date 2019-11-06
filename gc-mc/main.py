@@ -2,6 +2,7 @@ from data_loader import *
 from model import *
 from layers import *
 from metrics import *
+from preprocessing import *
 from keras import backend as K
 from keras.layers import Concatenate, Input, Dense
 from keras.models import Model
@@ -10,7 +11,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 
 FEATHIDDEN = 64
-HIDDEN = [41, 41, 10]
+HIDDEN = [41, 41, 41]
 BASES = 2
 DROPOUT = 0.7
 
@@ -19,43 +20,64 @@ def softmax_cross_entropy(y_true, y_pred):
     return K.mean(loss)
 
 # Load the datas
-num_users, num_items, num_classes, num_side_features, num_features, u_features,\
-v_features, u_features_nonzero, v_features_nonzero, u_features_side, v_features_side,\
-normalized_train, normalized_t_train, train_labels, train_u_indices, train_v_indices, adj_train,\
-normalized_val, normalized_t_val, val_labels, val_u_indices, val_v_indices, adj_val,\
-normalized_test, normalized_t_test, test_labels, test_u_indices, test_v_indices, adj_test = get_loader()
+num_users, num_items, num_classes, num_side_features, u_features, v_features,\
+train_u_features_side, train_v_features_side, train_normalized, train_normalized_t,\
+train_u_indices, train_v_indices, train_labels,\
+val_u_features_side, val_v_features_side, val_normalized, val_normalized_t,\
+val_u_indices, val_v_indices, val_labels,\
+test_u_features_side, test_v_features_side, test_normalized, test_normalized_t, \
+test_u_indices, test_v_indices, test_labels = get_loader()
 
-u_features_side = K.variable(u_features_side)
-v_features_side = K.variable(v_features_side)
+# データ整形
+num_features = u_features.shape[1]
+u_features_nonzero = u_features.shape[0]
+v_features_nonzero = v_features.shape[0]
 
-u_inputs = Input(shape=(2,), sparse=True, name="u_inputs")
-v_inputs = Input(shape=(2,), sparse=True, name="v_inputs")
-u_dense_inputs = Input(shape=(273,), sparse=True, name="u_dense_inputs")
-v_dense_inputs = Input(shape=(273,), sparse=True, name="v_dense_inputs")
+u_features = convert_sparse_matrix_to_sparse_tensor(u_features)
+v_features = convert_sparse_matrix_to_sparse_tensor(v_features)
 
-inputs = [u_inputs, v_inputs, u_dense_inputs, v_dense_inputs]
+train_normalized = convert_sparse_matrix_to_sparse_tensor(train_normalized)
+train_normalized_t = convert_sparse_matrix_to_sparse_tensor(train_normalized_t)
+train_u_features_side = K.variable(train_u_features_side)
+train_v_features_side = K.variable(train_v_features_side)
+train_num_labels = len(train_labels)
 
-u_sgc = SGConv(input_dim=num_users,
+val_normalized = convert_sparse_matrix_to_sparse_tensor(val_normalized)
+val_normalized_t = convert_sparse_matrix_to_sparse_tensor(val_normalized_t)
+val_u_features_side = K.variable(val_u_features_side)
+val_v_features_side = K.variable(val_v_features_side)
+val_num_labels = len(val_labels)
+
+test_normalized = convert_sparse_matrix_to_sparse_tensor(test_normalized)
+test_normalized_t = convert_sparse_matrix_to_sparse_tensor(test_normalized_t)
+test_u_features_side = K.variable(test_u_features_side)
+test_v_features_side = K.variable(test_v_features_side)
+test_num_labels = len(test_labels)
+
+u_dense_inputs = Input(shape=(num_side_features,), name="u_dense_inputs")
+v_dense_inputs = Input(shape=(num_side_features,), name="v_dense_inputs")
+
+u_sgc = SGConv(input_dim=num_features,
                 output_dim=HIDDEN[0],
                 features_nonzero=v_features_nonzero,
-                normalized=normalized_train,
+                normalized=train_normalized,
                 num_classes=num_classes,
                 sparse_inputs=True,
                 dropout=DROPOUT,
                 activation='relu',
-                kernel_initializer='he_normal')(inputs[0])
-v_sgc = SGConv(input_dim=num_items,
+                kernel_initializer='he_normal')(v_features)
+v_sgc = SGConv(input_dim=num_features,
                 output_dim=HIDDEN[0],
                 features_nonzero=u_features_nonzero,
-                normalized=normalized_t_train,
+                normalized=train_normalized_t,
                 num_classes=num_classes,
                 sparse_inputs=True,
                 dropout=DROPOUT,
                 activation='relu',
-                kernel_initializer='he_normal')(inputs[1])
+                kernel_initializer='he_normal')(u_features)
 
-u_dense1 = Dense(HIDDEN[1], activation='relu')(inputs[2])
-v_dense1 = Dense(HIDDEN[1], activation='relu')(inputs[3])
+u_dense1 = Dense(HIDDEN[1], activation='relu')(u_dense_inputs)
+v_dense1 = Dense(HIDDEN[1], activation='relu')(v_dense_inputs)
 
 u_m = Concatenate(axis=1)([u_sgc, u_dense1])
 v_m = Concatenate(axis=1)([v_sgc, v_dense1])
@@ -69,22 +91,23 @@ bilin_dec = BilinearMixture(num_classes=num_classes,
                             input_dim=HIDDEN[2],
                             num_users=num_users,
                             num_items=num_items,
+                            num_labels=train_num_labels,
                             user_item_bias=False,
-                            activation='softmax',
                             kernel_initializer='he_normal',
                             bias_initializer='zeros',
                             num_weights=2,
                             diagonal=False)([u_dense2, v_dense2])
 
-model = Model(inputs=inputs,
-            outputs=bilin_dec)
+predictions = Dense(HIDDEN[2], activation='softmax')(bilin_dec)
 
-model.compile(loss=softmax_cross_entropy,
+model = Model(inputs=[u_dense_inputs, v_dense_inputs],
+            outputs=predictions)
+
+model.compile(loss='categorical_crossentropy',
             optimizer='adam',
             metrics=['accuracy'])
 model.summary()
 
-hist = model.fit({'u_inputs': u_features, 'v_inputs': v_features,
-                'u_dense_inputs': u_features_side, 'v_dense_inputs': v_features_side},
-                train_labels,
-                epochs=200)
+# hist = model.fit(train_u_features_side,
+#                 train_labels,
+#                 epochs=200)

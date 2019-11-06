@@ -55,7 +55,7 @@ class SGConv(Layer):
 
         self.normalized = tf.sparse_split(axis=1, num_split=num_classes, sp_input=normalized)
         # self.normalized_t = tf.sparse_split(axis=1, num_split=num_classes, sp_input=normalized_t)
-
+        self.num_normalized = normalized.shape[0]
         self.num_classes = num_classes
 
     def build(self, input_shape):
@@ -72,34 +72,29 @@ class SGConv(Layer):
         x = input
 
         if self.sparse_inputs:
-            x = dropout_sparse(x, 1 - self.dropout, self.features_nonzero.value)
+            x = dropout_sparse(x, 1 - self.dropout, self.features_nonzero)
         else:
             x = tf.nn.dropout(x, 1 - self.dropout)
 
         normalizeds = []
-
         for i in range(len(self.normalized)):
             tmp = dot(x, self._weights[i], sparse=self.sparse_inputs)
-
             normalized = self.normalized[i]
-
             normalizeds.append(tf.sparse_tensor_dense_matmul(normalized, tmp))
 
-        # 分割と結合するのにh方向かd方向か要検討
         z = tf.concat(axis=1, values=normalizeds)
-
         outputs = self.activation(z)
 
         return outputs
 
     def compute_output_shape(self, input_shape):
-        return (input_shape[0], self.output_dim)
+        return (int(self.num_normalized), int(self.output_dim))
 
 class BilinearMixture(Layer):
 
-    def __init__(self, num_classes, u_indices, v_indices, input_dim, num_users, num_items, user_item_bias=False,
-                activation=None, kernel_initializer='he_normal', bias_initializer='zeros', num_weights=3, diagonal=True,
-                **kwargs):
+    def __init__(self, num_classes, u_indices, v_indices, input_dim, num_users,
+                num_items, num_labels, user_item_bias=False, kernel_initializer='he_normal',
+                bias_initializer='zeros', num_weights=3, diagonal=True, **kwargs):
 
         super(BilinearMixture, self).__init__(**kwargs)
 
@@ -107,6 +102,7 @@ class BilinearMixture(Layer):
         self.num_classes = num_classes
         self.num_users = num_users
         self.num_items = num_items
+        self.num_labels = num_labels
         self.num_weights = num_weights
         self.user_item_bias = user_item_bias
         self.diagonal = diagonal
@@ -117,7 +113,7 @@ class BilinearMixture(Layer):
         else:
             self._multiply_inputs_weights = tf.matmul
 
-        self.activation = activations.get(activation)
+        # self.activation = activations.get(activation)
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
 
@@ -179,9 +175,9 @@ class BilinearMixture(Layer):
             outputs += u_bias
             outputs += v_bias
 
-        outputs = self.activation(outputs)
+        # outputs = self.activation(outputs)
 
         return outputs
 
     def compute_output_shape(self, input_shape):
-        return (input_shape[0], self.num_classes)
+        return (int(self.num_labels), int(self.num_classes))
