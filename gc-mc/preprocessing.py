@@ -94,6 +94,7 @@ def sparse_to_tuple(sparse_mx):
     shape = sparse_mx.shape
     return coords, values, shape
 
+# dataのkeyを作成し、値をkeyに変換
 def map_data(data):
     uniq = list(set(data))
 
@@ -103,34 +104,43 @@ def map_data(data):
 
     return data, id_dict, n
 
+# csvから評価情報、ユーザー情報、作品情報を取得（最初に呼ばれる関数）
+# seed : 乱数
+# verbose : 詳細情報を表示させるかどうか
 def load_data(seed=1234, verbose=True):
 
     u_features = None
     v_features = None
 
-    filename = './csv/ratings_data.csv'
+    filename = './csv/ratings_data.csv' # 評価情報のファイル
 
+    # 評価情報にある要素の型を指定
     dtypes = {'u_nodes': np.int64, 'v_nodes': np.int64, 'ratings': np.float32}
-
-    headers = ['u_nodes', 'v_nodes', 'ratings']
+    headers = ['u_nodes', 'v_nodes', 'ratings'] # 評価情報にある要素の名称を指定
+    # csvの読み込み
     data = pd.read_csv(filename, header=None, names=headers, converters=dtypes, engine='python')
 
+    # dataframeをarrayに変換し、arrayをlistに変換
     data_array = data.as_matrix().tolist()
-    random.seed(seed)
-    random.shuffle(data_array)
-    data_array = np.array(data_array)
 
-    u_nodes_ratings = data_array[:, 0].astype(dtypes['u_nodes'])
-    v_nodes_ratings = data_array[:, 1].astype(dtypes['v_nodes'])
-    ratings = data_array[:, 2].astype(dtypes['ratings'])
+    random.seed(seed) # 乱数指定
+    random.shuffle(data_array) # 要素をシャッフル
+    data_array = np.array(data_array) # ndarrayに変換
 
+    # 要素を分割
+    u_nodes_ratings = data_array[:, 0].astype(dtypes['u_nodes']) # ユーザーノード
+    v_nodes_ratings = data_array[:, 1].astype(dtypes['v_nodes']) # 作品ノード
+    ratings = data_array[:, 2].astype(dtypes['ratings']) # 評価点
+
+    # ユーザーと作品ノードのkeyを作成し、値をkeyに変換
     u_nodes_ratings, u_dict, num_users = map_data(u_nodes_ratings)
     v_nodes_ratings, v_dict, num_items = map_data(v_nodes_ratings)
 
+    # dtypeをキャスト
     u_nodes_ratings, v_nodes_ratings = u_nodes_ratings.astype(np.int64), v_nodes_ratings.astype(np.int64)
     ratings = ratings.astype(np.float32)
 
-    # Load anime features
+    # 作品情報を読み込み
     animes_file = './csv/animes_data.csv'
 
     animes_headers = ['anime_id', 'title', 'company', 'genre']
@@ -146,19 +156,19 @@ def load_data(seed=1234, verbose=True):
 
     companies_dict = {g: idx for idx, g in enumerate(companies)}
 
-    # Creating 0 or 1 valued features for all companies
+    # 作品の属性をone-hotで表現
     v_features = np.zeros((num_items, num_companies), dtype=np.float32)
     for anime_id, s in zip(animes_df['anime_id'].values.tolist(), animes_df['company'].values.tolist()):
-        # Check if anime_id was listed in ratings file and therefore in mapping dictionary
         if anime_id in v_dict.keys():
             com = s.split(' / ')[0]
             v_features[v_dict[anime_id], companies_dict[com]] = 1.
 
-    # Load user features
+    # ユーザー情報を読み込み
     u_features = np.zeros((num_users, 1), dtype=np.float32)
 
-    u_features = sp.csr_matrix(u_features)
-    v_features = sp.csr_matrix(v_features)
+    # 疎行列に変換
+    u_features = sp.csr_matrix(u_features) # ユーザーの補助情報の行列
+    v_features = sp.csr_matrix(v_features) # 作品の補助情報の行列
 
     if verbose:
         print('Number of users = %d' % num_users)
@@ -168,6 +178,7 @@ def load_data(seed=1234, verbose=True):
 
     return num_users, num_items, u_nodes_ratings, v_nodes_ratings, ratings, u_features, v_features
 
+# 訓練、検証、テストにデータセットを分割
 def create_trainvaltest_split():
 
     num_users, num_items, u_nodes, v_nodes, ratings, u_features, v_features = load_data(seed=1234, verbose=True)
